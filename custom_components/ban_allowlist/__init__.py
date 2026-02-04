@@ -289,17 +289,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store ban manager reference for cleanup
     hass.data[DOMAIN][f"{entry.entry_id}_handler"] = ban_manager
 
-    async def _notification_listener(event):
-        if event.data.get("domain") != "persistent_notification":
-            return
-        if event.data.get("service") != "create":
-            return
-
-        service_data = event.data.get("service_data") or {}
-        message = service_data.get("message") or service_data.get("title") or ""
-        _LOGGER.debug(
-            "Observed persistent_notification.create with message: %s", message
-        )
+    async def _handle_notification_message(message: str) -> None:
         if "Login attempt failed" not in message:
             return
 
@@ -321,8 +311,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await _clear_ban_notification(hass, str(ip_value))
                 break
 
-    unsubscribe = hass.bus.async_listen("call_service", _notification_listener)
-    hass.data[DOMAIN][f"{entry.entry_id}_listener"] = unsubscribe
+    async def _service_listener(event):
+        if event.data.get("domain") != "persistent_notification":
+            return
+        if event.data.get("service") != "create":
+            return
+
+        service_data = event.data.get("service_data") or {}
+        message = service_data.get("message") or service_data.get("title") or ""
+        _LOGGER.debug(
+            "Observed persistent_notification.create with message: %s", message
+        )
+        await _handle_notification_message(message)
+
+    async def _event_listener(event):
+        message = event.data.get("message") or event.data.get("title") or ""
+        _LOGGER.debug(
+            "Observed persistent_notification event with message: %s", message
+        )
+        await _handle_notification_message(message)
+
+    unsubscribe_call_service = hass.bus.async_listen(
+        "call_service", _service_listener
+    )
+    unsubscribe_event = hass.bus.async_listen(
+        "persistent_notification", _event_listener
+    )
+    hass.data[DOMAIN][f"{entry.entry_id}_listener"] = (
+        unsubscribe_call_service,
+        unsubscribe_event,
+    )
 
     # Scan existing bans and remove any whitelisted IPs
     await _scan_and_remove_whitelisted_bans(hass, allowlist)
@@ -367,9 +385,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Clean up data
     hass.data[DOMAIN].pop(f"{entry.entry_id}_handler", None)
-    unsubscribe = hass.data[DOMAIN].pop(f"{entry.entry_id}_listener", None)
-    if unsubscribe:
-        unsubscribe()
+    unsubscribes = hass.data[DOMAIN].pop(f"{entry.entry_id}_listener", None)
+    if unsubscribes:
+        for unsubscribe in unsubscribes:
+            unsubscribe()
     
     return True
 
