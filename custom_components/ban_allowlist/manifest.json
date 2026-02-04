@@ -2,14 +2,14 @@
   "domain": "ban_allowlist",
   "name": "IP Ban Allowlist",
   "codeowners": [
-    "@palfrey"
+    "@KrX3D"
   ],
   "dependencies": ["http"],
-  "documentation": "https://github.com/palfrey/ban_allowlist",
+  "documentation": "https://github.com/KrX3D/ban_allowlist",
   "integration_type": "service",
   "iot_class": "calculated",
   "config_flow": true,
-  "issue_tracker": "https://github.com/palfrey/ban_allowlist/issues",
+  "issue_tracker": "https://github.com/KrX3D/ban_allowlist/issues",
   "requirements": [],
-  "version": "0.1"
+  "version": "0.2.1"
 }

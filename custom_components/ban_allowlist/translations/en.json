@@ -22,6 +22,12 @@
       "manage_ips": {
         "title": "Manage Whitelisted IPs",
         "description": "Current whitelisted IPs:\n\n{current_ips}",
+        "no_ips": "No IPs whitelisted",
+        "action_options": {
+          "add": "Add new IP address",
+          "remove": "Remove IP address",
+          "done": "Done"
+        },
         "data": {
           "action": "Action"
         }
