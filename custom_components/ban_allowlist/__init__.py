@@ -288,6 +288,85 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Store ban manager reference for cleanup
     hass.data[DOMAIN][f"{entry.entry_id}_handler"] = ban_manager
+    log_handler_key = f"{entry.entry_id}_log_handler"
+
+    async def _handle_notification_message(message: str) -> None:
+        if "Login attempt failed" not in message:
+            return
+
+        match = IP_MESSAGE_PATTERN.search(message)
+        if not match:
+            return
+
+        try:
+            ip_value = ip_address(match.group(1))
+        except ValueError:
+            return
+
+        for allowed_network in allowlist:
+            if ip_value in allowed_network:
+                _LOGGER.info(
+                    "Dismissed login-failed notification for allowlisted IP %s",
+                    ip_value,
+                )
+                await _clear_ban_notification(hass, str(ip_value))
+                break
+
+    async def _service_listener(event):
+        if event.data.get("domain") != "persistent_notification":
+            return
+        if event.data.get("service") != "create":
+            return
+
+        service_data = event.data.get("service_data") or {}
+        message = service_data.get("message") or service_data.get("title") or ""
+        _LOGGER.debug(
+            "Observed persistent_notification.create with message: %s", message
+        )
+        await _handle_notification_message(message)
+
+    async def _event_listener(event):
+        message = event.data.get("message") or event.data.get("title") or ""
+        _LOGGER.debug(
+            "Observed persistent_notification event with message: %s", message
+        )
+        await _handle_notification_message(message)
+
+    unsubscribe_call_service = hass.bus.async_listen(
+        "call_service", _service_listener
+    )
+    unsubscribe_event = hass.bus.async_listen(
+        "persistent_notification", _event_listener
+    )
+    hass.data[DOMAIN][f"{entry.entry_id}_listener"] = (
+        unsubscribe_call_service,
+        unsubscribe_event,
+    )
+
+    class _BanLogHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            message = record.getMessage()
+            match = IP_MESSAGE_PATTERN.search(message)
+            if not match:
+                return
+            try:
+                ip_value = ip_address(match.group(1))
+            except ValueError:
+                return
+            for allowed_network in allowlist:
+                if ip_value in allowed_network:
+                    _LOGGER.info(
+                        "Dismissed login-failed notification for allowlisted IP %s",
+                        ip_value,
+                    )
+                    hass.async_create_task(
+                        _clear_ban_notification(hass, str(ip_value))
+                    )
+                    break
+
+    log_handler = _BanLogHandler()
+    logging.getLogger("homeassistant.components.http.ban").addHandler(log_handler)
+    hass.data[DOMAIN][log_handler_key] = log_handler
 
     async def _handle_notification_message(message: str) -> None:
         if "Login attempt failed" not in message:
@@ -389,6 +468,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unsubscribes:
         for unsubscribe in unsubscribes:
             unsubscribe()
+    log_handler = hass.data[DOMAIN].pop(log_handler_key, None)
+    if log_handler:
+        logging.getLogger("homeassistant.components.http.ban").removeHandler(
+            log_handler
+        )
     
     return True
 
