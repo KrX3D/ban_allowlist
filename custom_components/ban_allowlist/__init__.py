@@ -105,15 +105,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("Ban Allowlist initialized with %d networks: %s", len(allowlist), [str(n) for n in allowlist])
 
     # Store original method if not already stored
-    if not hasattr(ban_manager, '_original_async_add_ban'):
+    if not hasattr(ban_manager, "_original_async_add_ban"):
         ban_manager._original_async_add_ban = IpBanManager.async_add_ban
     if (
-        hasattr(ban_manager, "async_add_login_failed")
+        hasattr(IpBanManager, "async_add_login_failed")
         and not hasattr(ban_manager, "_original_async_add_login_failed")
     ):
-        ban_manager._original_async_add_login_failed = (
-            ban_manager.async_add_login_failed
-        )
+        ban_manager._original_async_add_login_failed = IpBanManager.async_add_login_failed
 
     async def allowlist_async_add_ban(
         remote_addr: IPv4Address | IPv6Address,
@@ -146,7 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if hasattr(ban_manager, "_original_async_add_login_failed"):
 
         async def allowlist_async_add_login_failed(
-            remote_addr: IPv4Address | IPv6Address, *args, **kwargs
+            self: IpBanManager, remote_addr: IPv4Address | IPv6Address, *args, **kwargs
         ) -> None:
             """Wrapper for async_add_login_failed that checks allowlist."""
             ip_str = str(remote_addr)
@@ -160,9 +158,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     await _clear_ban_notification(hass, ip_str)
                     return
 
-            await ban_manager._original_async_add_login_failed(remote_addr, *args, **kwargs)
+            await ban_manager._original_async_add_login_failed(
+                self, remote_addr, *args, **kwargs
+            )
 
-        ban_manager.async_add_login_failed = (  # type: ignore[method-assign]
+        IpBanManager.async_add_login_failed = (  # type: ignore[method-assign]
             allowlist_async_add_login_failed
         )
 
@@ -193,7 +193,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             IpBanManager.async_add_ban = ban_manager._original_async_add_ban
             _LOGGER.info("Restored original ban method")
         if ban_manager and hasattr(ban_manager, "_original_async_add_login_failed"):
-            ban_manager.async_add_login_failed = (
+            IpBanManager.async_add_login_failed = (
                 ban_manager._original_async_add_login_failed
             )
             _LOGGER.info("Restored original login-failed method")

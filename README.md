@@ -7,7 +7,7 @@ A Home Assistant custom integration that prevents specific IP addresses from bei
 ✅ **UI-Based Configuration** - Manage whitelisted IPs through Home Assistant's interface  
 ✅ **Add/Remove IPs Easily** - No need to edit YAML files  
 ✅ **View Current Whitelist** - See all whitelisted IPs at a glance  
-✅ **Automatic Notification Clearing** - Removes ban notifications for whitelisted IPs  
+✅ **Automatic Notification Clearing** - Removes ban and failed-login notifications for whitelisted IPs  
 ✅ **Automatic Ban Removal** - Removes whitelisted IPs from ip_bans.yaml  
 ✅ **Auto-cleanup** - Deletes ip_bans.yaml when empty  
 ✅ **Comprehensive Logging** - Detailed logs for all actions  
@@ -28,6 +28,7 @@ A Home Assistant custom integration that prevents specific IP addresses from bei
            ├── manifest.json
            ├── strings.json
            └── translations/
+               ├── de.json
                └── en.json
    ```
 
@@ -56,6 +57,7 @@ custom_components/ban_allowlist/
 ├── manifest.json         # Integration metadata
 ├── strings.json          # UI strings
 └── translations/
+    ├── de.json           # German translations
     └── en.json           # English translations
 ```
 
@@ -89,9 +91,10 @@ custom_components/ban_allowlist/
 ## How It Works
 
 1. **Prevention**: When an IP in the allowlist tries to connect with invalid credentials, the integration prevents the ban
-2. **Cleanup**: If the IP was previously banned, it's removed from `ip_bans.yaml`
-3. **Notification**: The Home Assistant notification for that IP ban is automatically dismissed
-4. **File Management**: If `ip_bans.yaml` becomes empty, it's automatically deleted
+2. **Login Failed Tracking**: Failed-login tracking is skipped for allowlisted IPs
+3. **Cleanup**: If the IP was previously banned, it's removed from `ip_bans.yaml`
+4. **Notification**: Ban and failed-login Home Assistant notifications for that IP are automatically dismissed
+5. **File Management**: If `ip_bans.yaml` becomes empty, it's automatically deleted
 
 ## Logging
 
@@ -100,7 +103,8 @@ The integration provides detailed logging at the INFO level:
 ```
 INFO: IP 192.168.10.17 is in allowlist (matches 192.168.10.0/24), preventing ban
 INFO: Removed whitelisted IP 192.168.10.17 from ip_bans.yaml
-INFO: Cleared ban notification for whitelisted IP 192.168.10.17 (notification_id: http-ban-192.168.10.17)
+INFO: Dismissed notification 'ip-ban' for whitelisted IP 192.168.10.17
+INFO: Dismissed notification 'http-login' for whitelisted IP 192.168.10.17
 INFO: ip_bans.yaml is empty after removing 192.168.10.17, file deleted
 ```
 
@@ -146,7 +150,7 @@ Whitelist internal services that authenticate frequently:
 - Review logs to see if the integration is catching the ban attempt
 
 ### Notifications Not Clearing
-- The notification ID format must match `http-ban-{ip_address}`
+- The integration dismisses the `ip-ban` and `http-login` persistent notifications
 - Check logs for any errors when attempting to clear notifications
 
 ## Migration from YAML Configuration
@@ -164,9 +168,12 @@ If you were using the old YAML-based configuration:
 
 ⚠️ **Security**: Only whitelist IPs you trust. Whitelisted IPs can make unlimited login attempts without being banned.
 
+⚠️ **Requirement**: Home Assistant's HTTP ban system must be enabled (`http.ip_ban_enabled: true`).
+
 ## Support
 
-For issues, questions, or contributions, please visit the GitHub repository.
+For issues, questions, or contributions, please visit the GitHub repository:
+https://github.com/KrX3D/ban_allowlis
 
 ## License
 
