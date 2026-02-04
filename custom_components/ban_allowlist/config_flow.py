@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.translation import async_get_translations
 
 from .const import DOMAIN, CONF_IP_ADDRESSES
 
@@ -98,21 +99,38 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
             elif action == "done":
                 return self.async_create_entry(title="", data={})
 
+        translations = await async_get_translations(
+            self.hass, self.hass.config.language, "options", [DOMAIN]
+        )
+
+        def _translate(key: str, default: str) -> str:
+            return translations.get(f"component.{DOMAIN}.{key}", default)
+
         # Get current IPs
         current_ips = self.config_entry.data.get(CONF_IP_ADDRESSES, [])
-        ip_list = "\n".join(current_ips) if current_ips else "No IPs whitelisted"
+        ip_list = (
+            "\n".join(current_ips)
+            if current_ips
+            else _translate(
+                "options.step.manage_ips.no_ips", "No IPs whitelisted"
+            )
+        )
+
+        action_labels = {
+            "add": _translate(
+                "options.step.manage_ips.action_options.add", "Add new IP address"
+            ),
+            "remove": _translate(
+                "options.step.manage_ips.action_options.remove", "Remove IP address"
+            ),
+            "done": _translate("options.step.manage_ips.action_options.done", "Done"),
+        }
 
         return self.async_show_form(
             step_id="manage_ips",
             data_schema=vol.Schema(
                 {
-                    vol.Required("action"): vol.In(
-                        {
-                            "add": "Add new IP address",
-                            "remove": "Remove IP address",
-                            "done": "Done",
-                        }
-                    ),
+                    vol.Required("action"): vol.In(action_labels),
                 }
             ),
             errors=errors,
