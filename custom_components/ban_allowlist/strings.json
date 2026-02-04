@@ -2,14 +2,48 @@
   "config": {
     "step": {
       "user": {
+        "title": "Set up Ban Allowlist",
+        "description": "Add IP addresses or networks to whitelist (comma-separated).\n\nExample: {example}",
         "data": {
+          "ip_addresses": "IP Addresses"
         }
       }
     },
     "error": {
-      "unknown": "[%key:common::config_flow::error::unknown%]"
+      "invalid_ip": "Invalid IP address or network format",
+      "already_exists": "This IP address is already in the allowlist"
     },
     "abort": {
+      "already_configured": "Ban Allowlist is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "manage_ips": {
+        "title": "Manage Whitelisted IPs",
+        "description": "Current whitelisted IPs:\n\n{current_ips}",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "add_ip": {
+        "title": "Add IP Address",
+        "description": "Enter an IP address or network in CIDR notation.\n\nExample: {example}",
+        "data": {
+          "ip_address": "IP Address or Network"
+        }
+      },
+      "remove_ip": {
+        "title": "Remove IP Address",
+        "description": "Select an IP address to remove from the allowlist",
+        "data": {
+          "ip_address": "IP Address to Remove"
+        }
+      }
+    },
+    "error": {
+      "invalid_ip": "Invalid IP address or network format",
+      "already_exists": "This IP address is already in the allowlist"
     }
   }
 }
