@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ban-Allowlist einrichten",
+        "description": "IP-Adressen oder Netzwerke zur Allowlist hinzufügen (kommagetrennt).\n\nBeispiel: {example}",
+        "data": {
+          "ip_addresses": "IP-Adressen"
+        }
+      }
+    },
+    "error": {
+      "invalid_ip": "Ungültiges IP-Adress- oder Netzwerkformat",
+      "already_exists": "Diese IP-Adresse ist bereits in der Allowlist"
+    },
+    "abort": {
+      "already_configured": "Ban-Allowlist ist bereits eingerichtet"
+    }
+  },
+  "options": {
+    "step": {
+      "manage_ips": {
+        "title": "Allowlist-IP-Adressen verwalten",
+        "description": "Aktuelle Allowlist-IP-Adressen:\n\n{current_ips}",
+        "data": {
+          "action": "Aktion"
+        }
+      },
+      "add_ip": {
+        "title": "IP-Adresse hinzufügen",
+        "description": "Gib eine IP-Adresse oder ein Netzwerk in CIDR-Notation ein.\n\nBeispiel: {example}",
+        "data": {
+          "ip_address": "IP-Adresse oder Netzwerk"
+        }
+      },
+      "remove_ip": {
+        "title": "IP-Adresse entfernen",
+        "description": "Wähle eine IP-Adresse aus, die aus der Allowlist entfernt werden soll",
+        "data": {
+          "ip_address": "Zu entfernende IP-Adresse"
+        }
+      }
+    },
+    "error": {
+      "invalid_ip": "Ungültiges IP-Adress- oder Netzwerkformat",
+      "already_exists": "Diese IP-Adresse ist bereits in der Allowlist"
+    }
+  }
+}
