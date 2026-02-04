@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import List
 
 import voluptuous as vol
+from homeassistant.components.http import ban as ban_module
 from homeassistant.components.http.ban import KEY_BAN_MANAGER, IpBanManager
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -124,6 +125,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         and not hasattr(ban_manager, "_original_async_log_invalid_auth")
     ):
         ban_manager._original_async_log_invalid_auth = IpBanManager.async_log_invalid_auth
+    if (
+        hasattr(ban_module, "async_log_invalid_auth")
+        and "_original_module_async_log_invalid_auth" not in hass.data[DOMAIN]
+    ):
+        hass.data[DOMAIN][
+            "_original_module_async_log_invalid_auth"
+        ] = ban_module.async_log_invalid_auth
 
     async def allowlist_async_add_ban(
         remote_addr: IPv4Address | IPv6Address,
@@ -208,6 +216,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         IpBanManager.async_log_invalid_auth = (  # type: ignore[method-assign]
             allowlist_async_log_invalid_auth
         )
+    if "_original_module_async_log_invalid_auth" in hass.data[DOMAIN]:
+
+        async def allowlist_module_async_log_invalid_auth(*args, **kwargs) -> None:
+            """Module-level wrapper for async_log_invalid_auth."""
+            candidate_values = list(args) + list(kwargs.values())
+            ip_value = None
+
+            for value in candidate_values:
+                try:
+                    ip_value = ip_address(str(value))
+                    break
+                except (ValueError, TypeError):
+                    continue
+
+            if ip_value is not None:
+                for allowed_network in allowlist:
+                    if ip_value in allowed_network:
+                        _LOGGER.info(
+                            "Skipping module invalid-auth logging for %s as it's in the allowlist",
+                            ip_value,
+                        )
+                        await _clear_ban_notification(hass, str(ip_value))
+                        return
+
+            await hass.data[DOMAIN]["_original_module_async_log_invalid_auth"](
+                *args, **kwargs
+            )
+
+        ban_module.async_log_invalid_auth = allowlist_module_async_log_invalid_auth
 
     # Store ban manager reference for cleanup
     hass.data[DOMAIN][f"{entry.entry_id}_handler"] = ban_manager
@@ -245,6 +282,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ban_manager._original_async_log_invalid_auth
             )
             _LOGGER.info("Restored original invalid-auth method")
+        if "_original_module_async_log_invalid_auth" in hass.data[DOMAIN]:
+            ban_module.async_log_invalid_auth = hass.data[DOMAIN].pop(
+                "_original_module_async_log_invalid_auth"
+            )
+            _LOGGER.info("Restored original module invalid-auth method")
     except Exception as err:
         _LOGGER.warning("Could not restore original ban method: %s", err)
     

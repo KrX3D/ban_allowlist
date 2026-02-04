@@ -100,7 +100,7 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data={})
 
         translations = await async_get_translations(
-            self.hass, self.hass.config.language, "config", [DOMAIN]
+            self.hass, self.hass.config.language, "options", [DOMAIN]
         )
 
         def _translate(key: str, default: str) -> str:
