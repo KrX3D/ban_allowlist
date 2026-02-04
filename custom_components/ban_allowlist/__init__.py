@@ -36,7 +36,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     try:
         ban_manager: IpBanManager = hass.http.app[KEY_BAN_MANAGER]
     except KeyError:
-        _LOGGER.warn(
+        _LOGGER.warning(
             "Can't find ban manager. ban_allowlist requires http.ip_ban_enabled to be True, so disabling."
         )
         return True
@@ -107,6 +107,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store original method if not already stored
     if not hasattr(ban_manager, '_original_async_add_ban'):
         ban_manager._original_async_add_ban = IpBanManager.async_add_ban
+    if (
+        hasattr(ban_manager, "async_add_login_failed")
+        and not hasattr(ban_manager, "_original_async_add_login_failed")
+    ):
+        ban_manager._original_async_add_login_failed = (
+            ban_manager.async_add_login_failed
+        )
 
     async def allowlist_async_add_ban(
         remote_addr: IPv4Address | IPv6Address,
@@ -136,6 +143,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Replace the async_add_ban method
     ban_manager.async_add_ban = allowlist_async_add_ban  # type: ignore[method-assign]
+    if hasattr(ban_manager, "_original_async_add_login_failed"):
+
+        async def allowlist_async_add_login_failed(
+            remote_addr: IPv4Address | IPv6Address, *args, **kwargs
+        ) -> None:
+            """Wrapper for async_add_login_failed that checks allowlist."""
+            ip_str = str(remote_addr)
+
+            for allowed_network in allowlist:
+                if remote_addr in allowed_network:
+                    _LOGGER.info(
+                        "Skipping login-failed tracking for %s as it's in the allowlist",
+                        remote_addr,
+                    )
+                    await _clear_ban_notification(hass, ip_str)
+                    return
+
+            await ban_manager._original_async_add_login_failed(remote_addr, *args, **kwargs)
+
+        ban_manager.async_add_login_failed = (  # type: ignore[method-assign]
+            allowlist_async_add_login_failed
+        )
 
     # Store ban manager reference for cleanup
     hass.data[DOMAIN][f"{entry.entry_id}_handler"] = ban_manager
@@ -160,9 +189,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         ban_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_handler")
         
-        if ban_manager and hasattr(ban_manager, '_original_async_add_ban'):
+        if ban_manager and hasattr(ban_manager, "_original_async_add_ban"):
             IpBanManager.async_add_ban = ban_manager._original_async_add_ban
             _LOGGER.info("Restored original ban method")
+        if ban_manager and hasattr(ban_manager, "_original_async_add_login_failed"):
+            ban_manager.async_add_login_failed = (
+                ban_manager._original_async_add_login_failed
+            )
+            _LOGGER.info("Restored original login-failed method")
     except Exception as err:
         _LOGGER.warning("Could not restore original ban method: %s", err)
     
@@ -204,6 +238,11 @@ async def _remove_from_ban_list(hass: HomeAssistant, ip_address: str) -> None:
             with open(ban_file, "r") as f:
                 bans = yaml.safe_load(f) or {}
             
+            if not bans:
+                ban_file.unlink()
+                _LOGGER.info("ip_bans.yaml is empty, file deleted")
+                return
+
             # Check if IP is in ban list
             if ip_address in bans:
                 del bans[ip_address]
@@ -245,9 +284,9 @@ async def _clear_ban_notification(hass: HomeAssistant, ip_address: str) -> None:
     
     # Wait and dismiss multiple times to catch all notifications
     # Sometimes HA creates multiple notifications or creates them slightly delayed
-    for attempt in range(3):  # Try 3 times
+    for attempt in range(5):  # Try 5 times
         if attempt > 0:
-            await asyncio.sleep(0.3)  # Wait 300ms between attempts
+            await asyncio.sleep(0.5)  # Wait 500ms between attempts
         
         for notification_id in notification_ids:
             try:
@@ -255,7 +294,7 @@ async def _clear_ban_notification(hass: HomeAssistant, ip_address: str) -> None:
                     "persistent_notification",
                     "dismiss",
                     {"notification_id": notification_id},
-                    blocking=False,
+                    blocking=True,
                 )
                 if attempt == 0:  # Only log on first attempt to avoid spam
                     _LOGGER.info(
@@ -285,7 +324,7 @@ async def _clear_ban_notification(hass: HomeAssistant, ip_address: str) -> None:
                     "persistent_notification",
                     "dismiss",
                     {"notification_id": notification_id},
-                    blocking=False,
+                    blocking=True,
                 )
                 _LOGGER.debug("Final cleanup dismissed '%s' for IP %s", notification_id, ip_address)
             except Exception as err:
@@ -319,6 +358,11 @@ async def _scan_and_remove_whitelisted_bans(
             # Read current bans
             with open(ban_file, "r") as f:
                 bans = yaml.safe_load(f) or {}
+
+            if not bans:
+                ban_file.unlink()
+                _LOGGER.info("ip_bans.yaml is empty, file deleted")
+                return []
             
             removed_ips = []
             
