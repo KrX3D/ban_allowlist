@@ -33,7 +33,7 @@ MODULE_HOOKS = [
     "log_invalid_auth",
     "async_log_invalid_auth_message",
 ]
-IP_MESSAGE_PATTERN = re.compile(r"(\\d{1,3}(?:\\.\\d{1,3}){3})")
+IP_MESSAGE_PATTERN = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3})")
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -295,7 +295,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if event.data.get("service") != "create":
             return
 
-        message = (event.data.get("service_data") or {}).get("message", "")
+        service_data = event.data.get("service_data") or {}
+        message = service_data.get("message") or service_data.get("title") or ""
+        _LOGGER.debug(
+            "Observed persistent_notification.create with message: %s", message
+        )
         if "Login attempt failed" not in message:
             return
 
