@@ -173,7 +173,7 @@ If you were using the old YAML-based configuration:
 ## Support
 
 For issues, questions, or contributions, please visit the GitHub repository:
-https://github.com/KrX3D/ban_allowlis
+https://github.com/KrX3D/ban_allowlist
 
 ## License
 
