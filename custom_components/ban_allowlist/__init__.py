@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 import logging
 from ipaddress import (
     IPv4Address,
@@ -32,6 +33,7 @@ MODULE_HOOKS = [
     "log_invalid_auth",
     "async_log_invalid_auth_message",
 ]
+IP_MESSAGE_PATTERN = re.compile(r"(\\d{1,3}(?:\\.\\d{1,3}){3})")
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -287,6 +289,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store ban manager reference for cleanup
     hass.data[DOMAIN][f"{entry.entry_id}_handler"] = ban_manager
 
+    async def _notification_listener(event):
+        if event.data.get("domain") != "persistent_notification":
+            return
+        if event.data.get("service") != "create":
+            return
+
+        message = (event.data.get("service_data") or {}).get("message", "")
+        if "Login attempt failed" not in message:
+            return
+
+        match = IP_MESSAGE_PATTERN.search(message)
+        if not match:
+            return
+
+        try:
+            ip_value = ip_address(match.group(1))
+        except ValueError:
+            return
+
+        for allowed_network in allowlist:
+            if ip_value in allowed_network:
+                _LOGGER.info(
+                    "Dismissed login-failed notification for allowlisted IP %s",
+                    ip_value,
+                )
+                await _clear_ban_notification(hass, str(ip_value))
+                break
+
+    unsubscribe = hass.bus.async_listen("call_service", _notification_listener)
+    hass.data[DOMAIN][f"{entry.entry_id}_listener"] = unsubscribe
+
     # Scan existing bans and remove any whitelisted IPs
     await _scan_and_remove_whitelisted_bans(hass, allowlist)
     
@@ -330,6 +363,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Clean up data
     hass.data[DOMAIN].pop(f"{entry.entry_id}_handler", None)
+    unsubscribe = hass.data[DOMAIN].pop(f"{entry.entry_id}_listener", None)
+    if unsubscribe:
+        unsubscribe()
     
     return True
 
