@@ -94,7 +94,8 @@ custom_components/ban_allowlist/
 2. **Login Failed Tracking**: Failed-login tracking is skipped for allowlisted IPs
 3. **Cleanup**: If the IP was previously banned, it's removed from `ip_bans.yaml`
 4. **Notification**: Ban and failed-login Home Assistant notifications for that IP are automatically dismissed
-5. **File Management**: If `ip_bans.yaml` becomes empty, it's automatically deleted
+5. **Log-based Cleanup**: A log handler watches HTTP ban warnings and dismisses allowlisted login-failed notifications
+6. **File Management**: If `ip_bans.yaml` becomes empty, it's automatically deleted
 
 ## Logging
 
