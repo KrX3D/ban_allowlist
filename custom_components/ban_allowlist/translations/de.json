@@ -3,9 +3,9 @@
     "step": {
       "user": {
         "title": "Ban-Allowlist einrichten",
-        "description": "IP-Adressen oder Netzwerke zur Allowlist hinzufügen (kommagetrennt).\n\nBeispiel: {example}",
+        "description": "IPv4- oder IPv6-Adressen und Netzwerke zur Allowlist hinzufügen (kommagetrennt).\n\nBeispiel: {example}",
         "data": {
-          "ip_addresses": "IP-Adressen"
+          "ip_addresses": "IP-Adressen / Netzwerke"
         }
       }
     },
@@ -20,9 +20,9 @@
   "options": {
     "step": {
       "manage_ips": {
-        "title": "Allowlist-IP-Adressen verwalten",
-        "description": "Aktuelle Allowlist-IP-Adressen:\n\n{current_ips}",
-        "no_ips": "Keine IPs in der Allowlist",
+        "title": "Allowlist-Einträge verwalten",
+        "description": "Aktuelle Allowlist-Einträge:\n\n{current_ips}",
+        "no_ips": "Keine Einträge in der Allowlist",
         "action_options": {
           "add": "Neue IP-Adresse hinzufügen",
           "remove": "IP-Adresse entfernen",
@@ -33,17 +33,17 @@
         }
       },
       "add_ip": {
-        "title": "IP-Adresse hinzufügen",
-        "description": "Gib eine IP-Adresse oder ein Netzwerk in CIDR-Notation ein.\n\nBeispiel: {example}",
+        "title": "IP-Adresse oder Netzwerk hinzufügen",
+        "description": "Gib eine IPv4- oder IPv6-Adresse oder ein Netzwerk in CIDR-Notation ein.\n\nBeispiel: {example}",
         "data": {
           "ip_address": "IP-Adresse oder Netzwerk"
         }
       },
       "remove_ip": {
         "title": "IP-Adresse entfernen",
-        "description": "Wähle eine IP-Adresse aus, die aus der Allowlist entfernt werden soll",
+        "description": "Wähle einen Eintrag aus, der aus der Allowlist entfernt werden soll",
         "data": {
-          "ip_address": "Zu entfernende IP-Adresse"
+          "ip_address": "Zu entfernender Eintrag"
         }
       }
     },

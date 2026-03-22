@@ -24,10 +24,6 @@ class BanAllowlistConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
-        # FIX: enforce a single instance.  Previously the config flow had no unique
-        # ID, so the integration could be added multiple times.  Each instance would
-        # monkey-patch on top of the previous one, making method restoration on
-        # unload unreliable.
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
 
@@ -61,7 +57,7 @@ class BanAllowlistConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
             description_placeholders={
-                "example": "192.168.1.100, 10.0.0.0/24, 172.16.0.1"
+                "example": "192.168.1.100, 10.0.0.0/24, 2001:db8::1, 2001:db8::/32"
             },
         )
 
@@ -71,37 +67,15 @@ class BanAllowlistConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        # FIX: modern HA (2024+) sets self.config_entry automatically on the
-        # OptionsFlow instance; no need to pass it via __init__.
         return BanAllowlistOptionsFlow()
 
 
 class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for Ban Allowlist.
-
-    FIX: the previous implementation called async_update_entry(data=...) mid-flow
-    to immediately persist each add/remove.  This had two problems:
-      1. It wrote to entry.data instead of entry.options (wrong storage slot).
-      2. It bypassed the normal options-flow commit lifecycle.
-
-    The new approach tracks a working copy (_ips) in memory during the flow and
-    only commits to entry.options when the user explicitly selects "Done".  If the
-    dialog is closed early, no changes are saved — which is the expected HA pattern.
-
-    async_setup_entry reads from entry.options first, falling back to entry.data
-    for entries created before this change (migration path).
-    """
+    """Handle options flow for Ban Allowlist."""
 
     def _get_ips(self) -> list[str]:
-        """Return the current working IP list, initialising from the entry if needed.
-
-        Using a lazy-init helper means _ips is available regardless of which step
-        is entered first, without requiring __init__ to be overridden.
-        """
+        """Return the current working IP list, initialising from the entry if needed."""
         if not hasattr(self, "_ips"):
-            # Prefer options (set by a previous options flow), fall back to data
-            # (set by the initial config flow).  Use an explicit None check so an
-            # intentionally empty options list is respected rather than overridden.
             opts = self.config_entry.options.get(CONF_IP_ADDRESSES)
             data_ips = self.config_entry.data.get(CONF_IP_ADDRESSES, [])
             self._ips: list[str] = list(opts if opts is not None else data_ips)
@@ -111,7 +85,7 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage the options — entry point called once by HA."""
-        self._get_ips()  # eagerly initialise so all subsequent steps see it
+        self._get_ips()
         return await self.async_step_manage_ips()
 
     async def async_step_manage_ips(
@@ -127,7 +101,6 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
             if action == "remove":
                 return await self.async_step_remove_ip()
             if action == "done":
-                # Commit the working copy to entry.options and trigger reload.
                 return self.async_create_entry(
                     title="",
                     data={CONF_IP_ADDRESSES: self._get_ips()},
@@ -189,7 +162,9 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
             step_id="add_ip",
             data_schema=vol.Schema({vol.Required("ip_address"): str}),
             errors=errors,
-            description_placeholders={"example": "192.168.1.100 or 10.0.0.0/24"},
+            description_placeholders={
+                "example": "192.168.1.100, 10.0.0.0/24, 2001:db8::1, 2001:db8::/32"
+            },
         )
 
     async def async_step_remove_ip(

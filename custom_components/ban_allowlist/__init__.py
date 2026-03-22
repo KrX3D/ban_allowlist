@@ -34,7 +34,6 @@ MODULE_HOOKS = [
     "async_log_invalid_auth_message",
 ]
 # Matches IPv4 and a broad IPv6-like token; validated with ip_address() afterward.
-# FIX: was IPv4-only, which silently ignored IPv6 addresses in the log handler.
 IP_MESSAGE_PATTERN = re.compile(
     r"((?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7})"
 )
@@ -66,8 +65,27 @@ class BanAllowlistData:
 def _extract_ip(
     args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> IPv4Address | IPv6Address | None:
-    """Extract the first recognizable IP address from positional/keyword args."""
+    """Extract the first recognizable IP address from positional/keyword args.
+
+    FIX: In newer HA versions, async_log_invalid_auth / log_invalid_auth receive
+    a web.Request object as their first argument rather than a plain IP string.
+    Calling str() on a web.Request gives something like '<Request POST /api/...>'
+    which ip_address() rejects, so IP extraction silently failed and the allowlist
+    check was skipped — meaning the notification was never intercepted.
+
+    We now check for the aiohttp web.Request `.remote` attribute first before
+    falling back to the generic str() conversion.
+    """
     for value in (*args, *kwargs.values()):
+        # Handle aiohttp web.Request objects (newer HA passes request, not raw IP).
+        # .remote is the string representation of the peer's IP address.
+        remote = getattr(value, "remote", None)
+        if isinstance(remote, str):
+            try:
+                return ip_address(remote)
+            except (ValueError, TypeError):
+                continue
+        # Fall back to direct string conversion for plain IP / IPv4Address / IPv6Address.
         try:
             return ip_address(str(value))
         except (ValueError, TypeError):
@@ -78,26 +96,32 @@ def _extract_ip(
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Ban Allowlist from YAML configuration (legacy path).
 
-    The preferred setup path is via the UI (config entry).  YAML support is
-    retained only for the unit-test suite which drives setup via
-    async_setup_component with a YAML dict.
+    HA calls async_setup for every integration that defines CONFIG_SCHEMA,
+    even when the domain key is absent from configuration.yaml.  The previous
+    code warned unconditionally whenever a config entry existed, which meant
+    the warning fired on every startup even with the YAML section commented out.
 
-    Conflict rules:
-      - If a config entry already exists, skip YAML setup entirely and warn
-        the user to remove the YAML section.
-      - If we do patch the ban manager, mark it with ``_yaml_patched`` so that
-        async_setup_entry can detect the situation and refuse to layer on top.
+    FIX: only treat it as a conflict (and warn) when ip_addresses are actually
+    present in the YAML config.  An empty / absent YAML section is silently
+    ignored — the config entry handles everything.
     """
-    # FIX: if a config entry is already managing the ban manager, don't also
-    # set up via YAML — the two patches would stack and restoration on unload
-    # would leave behind the YAML wrapper instead of the true HA original.
+    domain_config = config.get(DOMAIN, {})
+    yaml_ips = domain_config.get("ip_addresses", [])
+
+    # Nothing in YAML → nothing to do, config entry takes over.
+    if not yaml_ips:
+        return True
+
+    # IPs ARE present in YAML and a config entry also exists — genuine conflict.
     if hass.config_entries.async_entries(DOMAIN):
         _LOGGER.warning(
-            "ban_allowlist is configured via the UI — ignoring configuration.yaml "
-            "entry. Remove the 'ban_allowlist:' section from configuration.yaml."
+            "ban_allowlist has ip_addresses in configuration.yaml AND is configured "
+            "via the UI. Remove the 'ban_allowlist:' section from configuration.yaml "
+            "— the UI config entry will be used and the YAML section is ignored."
         )
         return True
 
+    # YAML-only path (no config entry): used by the unit-test suite.
     try:
         ban_manager: IpBanManager = hass.http.app[KEY_BAN_MANAGER]
     except KeyError:
@@ -109,7 +133,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     _LOGGER.debug("Ban manager %s", ban_manager)
     allowlist: list[IPv4Network | IPv6Network] = [
-        ip_network(ip) for ip in config.get(DOMAIN, {}).get("ip_addresses", [])
+        ip_network(ip) for ip in yaml_ips
     ]
 
     if not allowlist:
@@ -154,10 +178,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         return True
 
-    # FIX: if async_setup (YAML path) already patched this ban_manager instance,
-    # we cannot safely capture the true original — it would already be the YAML
-    # wrapper.  Refuse to stack a second patch and tell the user to clean up their
-    # configuration.yaml instead.
+    # If async_setup (YAML path) already patched this ban_manager instance,
+    # we cannot safely capture the true original.
     if getattr(ban_manager, "_yaml_patched", False):
         _LOGGER.warning(
             "ban_allowlist is configured both in configuration.yaml and via the UI. "
@@ -190,8 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         [str(n) for n in allowlist],
     )
 
-    # Store originals as bound methods so calling them in wrappers needs no
-    # explicit `self` / `ban_manager` argument — restoration is a plain assignment.
+    # Store originals as bound methods — restoration is a plain assignment back.
     # All three are patched at the *instance* level so no other IpBanManager
     # instances are affected and restoration is isolated to this entry.
     original_add_ban: Any = ban_manager.async_add_ban
@@ -246,6 +267,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ban_manager.async_add_login_failed = allowlist_async_add_login_failed  # type: ignore[method-assign]
 
     # --- Patch async_log_invalid_auth (instance-level) ---
+    # FIX: this is the method that actually creates the http-login persistent
+    # notification in newer HA versions.  The previous _extract_ip failed silently
+    # because newer HA passes a web.Request object here, not a raw IP.  Now that
+    # _extract_ip handles web.Request.remote, this intercept fires correctly and
+    # prevents the notification from being created at all — no race condition.
     if original_log_invalid_auth is not None:
 
         async def allowlist_async_log_invalid_auth(
@@ -260,13 +286,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "Skipping invalid-auth logging for %s as it's in the allowlist",
                             ip_value,
                         )
-                        await _clear_ban_notification(hass, str(ip_value))
+                        # Do NOT call the original — that's what creates the notification.
                         return
             await original_log_invalid_auth(*args, **kwargs)
 
         ban_manager.async_log_invalid_auth = allowlist_async_log_invalid_auth  # type: ignore[method-assign]
 
     # --- Patch module-level hooks ---
+    # FIX: same web.Request fix applies here.  Module-level async_log_invalid_auth
+    # also receives a web.Request in newer HA, so without the .remote check the
+    # IP was never extracted and the hook passed through to HA unchanged.
     def _make_module_wrapper(hook_name: str, original: Any) -> Any:
         async def _async_wrapper(*args: Any, **kwargs: Any) -> Any:
             ip_value = _extract_ip(args, kwargs)
@@ -278,7 +307,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             hook_name,
                             ip_value,
                         )
-                        await _clear_ban_notification(hass, str(ip_value))
+                        # Do NOT call the original — return without creating notification.
                         return None
             return await original(*args, **kwargs)
 
@@ -292,9 +321,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             hook_name,
                             ip_value,
                         )
-                        hass.async_create_task(
-                            _clear_ban_notification(hass, str(ip_value))
-                        )
                         return None
             return original(*args, **kwargs)
 
@@ -303,7 +329,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for hook, original in original_module_hooks.items():
         setattr(ban_module, hook, _make_module_wrapper(hook, original))
 
-    # --- Log handler (belt-and-suspenders for any paths not caught above) ---
+    # --- Log handler (belt-and-suspenders fallback) ---
+    # This catches any HA code paths not covered by the method patches above.
+    # Note: because the notification is now intercepted *before* creation by the
+    # patches above, this handler should rarely need to fire for allowlisted IPs.
+    # It is retained as a safety net for future HA refactors.
     class _BanLogHandler(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
             message = record.getMessage()
@@ -317,7 +347,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for allowed_network in allowlist:
                 if ip_value in allowed_network:
                     _LOGGER.info(
-                        "Dismissed login-failed notification for allowlisted IP %s",
+                        "Log handler: dismissed notification for allowlisted IP %s",
                         ip_value,
                     )
                     hass.async_create_task(
@@ -328,8 +358,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     log_handler = _BanLogHandler()
     logging.getLogger("homeassistant.components.http.ban").addHandler(log_handler)
 
-    # Store all runtime state on the entry — no hass.data dict management needed,
-    # and no NameError risk from mismatched local variable scopes across functions.
     entry.runtime_data = BanAllowlistData(
         ban_manager=ban_manager,
         log_handler=log_handler,
@@ -352,7 +380,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     data: BanAllowlistData | None = getattr(entry, "runtime_data", None)
     if data is None:
-        # Entry never fully set up (e.g. YAML conflict warning path), nothing to restore.
         return True
 
     ban_manager = data.ban_manager
@@ -440,11 +467,9 @@ async def _remove_from_ban_list(hass: HomeAssistant, ip_addr: str) -> None:
 async def _clear_ban_notification(hass: HomeAssistant, ip_addr: str) -> None:
     """Dismiss Home Assistant ban notifications for a whitelisted IP.
 
-    A single dismiss pass is sufficient because we intercept the ban before HA
-    calls async_add_ban / creates the notification.  The previous retry loop
-    (5 attempts x 500 ms + a 3 s deferred task) was both noisy and racy, and
-    could accidentally dismiss legitimate ban notifications for IPs that are not
-    in the allowlist when two events were processed concurrently.
+    With the web.Request fix in place, the primary interceptors now prevent the
+    notification from being created at all.  This function is retained as a
+    safety net for any paths that still slip through (e.g. the log handler).
     """
     for notification_id in ("ip-ban", "http-login"):
         try:
