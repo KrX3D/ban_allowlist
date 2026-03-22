@@ -51,17 +51,12 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-# FIX: use entry.runtime_data instead of hass.data for per-entry state.
-# This eliminates the NameError bug in async_unload_entry (log_handler_key was a
-# local variable in async_setup_entry but referenced in async_unload_entry).
 @dataclasses.dataclass
 class BanAllowlistData:
     """Runtime data stored on the config entry."""
 
     ban_manager: IpBanManager
     log_handler: logging.Handler
-    # FIX: store originals here instead of as attributes on the ban_manager instance.
-    # Originals are stored as bound methods so restoration just assigns them back.
     original_add_ban: Any
     original_add_login_failed: Any | None
     original_log_invalid_auth: Any | None
@@ -81,7 +76,28 @@ def _extract_ip(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up Ban Allowlist from YAML configuration (legacy / test path)."""
+    """Set up Ban Allowlist from YAML configuration (legacy path).
+
+    The preferred setup path is via the UI (config entry).  YAML support is
+    retained only for the unit-test suite which drives setup via
+    async_setup_component with a YAML dict.
+
+    Conflict rules:
+      - If a config entry already exists, skip YAML setup entirely and warn
+        the user to remove the YAML section.
+      - If we do patch the ban manager, mark it with ``_yaml_patched`` so that
+        async_setup_entry can detect the situation and refuse to layer on top.
+    """
+    # FIX: if a config entry is already managing the ban manager, don't also
+    # set up via YAML — the two patches would stack and restoration on unload
+    # would leave behind the YAML wrapper instead of the true HA original.
+    if hass.config_entries.async_entries(DOMAIN):
+        _LOGGER.warning(
+            "ban_allowlist is configured via the UI — ignoring configuration.yaml "
+            "entry. Remove the 'ban_allowlist:' section from configuration.yaml."
+        )
+        return True
+
     try:
         ban_manager: IpBanManager = hass.http.app[KEY_BAN_MANAGER]
     except KeyError:
@@ -98,11 +114,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     if not allowlist:
         _LOGGER.info("Not setting allowlist, as no IPs set")
-        return True
-
-    # Guard: if a config entry already patched the ban manager, don't double-patch.
-    if getattr(ban_manager, "_yaml_patched", False):
-        _LOGGER.debug("Ban manager already patched by YAML setup, skipping")
         return True
 
     _LOGGER.info("Setting allowlist with %s", [str(ip) for ip in allowlist])
@@ -125,7 +136,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     ban_manager.async_add_ban = (  # type: ignore[method-assign]
         allowlist_async_add_ban
     )
-    # Mark so config-entry setup skips double-patching if both paths run.
+    # Mark so async_setup_entry can detect a YAML patch is already in place.
     ban_manager._yaml_patched = True  # type: ignore[attr-defined]
 
     return True
@@ -135,7 +146,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry."""
     _LOGGER.debug("Setting up Ban Allowlist for entry: %s", entry.title)
 
-    # FIX: read IPs from options first (written by the options flow on save),
+    try:
+        ban_manager: IpBanManager = hass.http.app[KEY_BAN_MANAGER]
+    except KeyError:
+        _LOGGER.error(
+            "Can't find ban manager. ban_allowlist requires http.ip_ban_enabled to be True"
+        )
+        return True
+
+    # FIX: if async_setup (YAML path) already patched this ban_manager instance,
+    # we cannot safely capture the true original — it would already be the YAML
+    # wrapper.  Refuse to stack a second patch and tell the user to clean up their
+    # configuration.yaml instead.
+    if getattr(ban_manager, "_yaml_patched", False):
+        _LOGGER.warning(
+            "ban_allowlist is configured both in configuration.yaml and via the UI. "
+            "Remove the 'ban_allowlist:' section from configuration.yaml — "
+            "the UI config entry will not be activated while the YAML entry is present."
+        )
+        return True
+
+    # Read IPs from options first (written by the options flow on save),
     # falling back to data (written by the initial config flow).
     opts_ips: list[str] | None = entry.options.get(CONF_IP_ADDRESSES)
     ip_addresses: list[str] = (
@@ -153,30 +184,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.warning("No valid IP networks configured")
         return True
 
-    try:
-        ban_manager: IpBanManager = hass.http.app[KEY_BAN_MANAGER]
-    except KeyError:
-        _LOGGER.error(
-            "Can't find ban manager. ban_allowlist requires http.ip_ban_enabled to be True"
-        )
-        return True
-
     _LOGGER.info(
         "Ban Allowlist initialized with %d networks: %s",
         len(allowlist),
         [str(n) for n in allowlist],
     )
 
-    # FIX: store originals as *bound* methods on BanAllowlistData, not as
-    # attributes on the ban_manager.  Bound methods already carry `self`
-    # (the ban_manager instance), so calling original(args) works without
-    # needing to pass ban_manager explicitly.
-    #
-    # FIX: patch ALL three methods at the *instance* level (not class level).
-    # The original code patched async_add_ban on the instance but
-    # async_add_login_failed / async_log_invalid_auth on the class, which
-    # affected every IpBanManager instance globally and made restoration
-    # unreliable.
+    # Store originals as bound methods so calling them in wrappers needs no
+    # explicit `self` / `ban_manager` argument — restoration is a plain assignment.
+    # All three are patched at the *instance* level so no other IpBanManager
+    # instances are affected and restoration is isolated to this entry.
     original_add_ban: Any = ban_manager.async_add_ban
     original_add_login_failed: Any | None = getattr(
         ban_manager, "async_add_login_failed", None
@@ -287,7 +304,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         setattr(ban_module, hook, _make_module_wrapper(hook, original))
 
     # --- Log handler (belt-and-suspenders for any paths not caught above) ---
-    # FIX: the log handler now uses an IPv4+IPv6 regex (see IP_MESSAGE_PATTERN).
     class _BanLogHandler(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
             message = record.getMessage()
@@ -313,7 +329,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     logging.getLogger("homeassistant.components.http.ban").addHandler(log_handler)
 
     # Store all runtime state on the entry — no hass.data dict management needed,
-    # and no NameError risk from mismatched local variable scopes.
+    # and no NameError risk from mismatched local variable scopes across functions.
     entry.runtime_data = BanAllowlistData(
         ban_manager=ban_manager,
         log_handler=log_handler,
@@ -334,18 +350,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     _LOGGER.debug("Unloading Ban Allowlist for entry: %s", entry.title)
 
-    # FIX: runtime_data replaces the hass.data dict + local log_handler_key variable.
-    # Previously, async_unload_entry referenced `log_handler_key` which was only
-    # defined as a local variable inside async_setup_entry — a guaranteed NameError.
     data: BanAllowlistData | None = getattr(entry, "runtime_data", None)
     if data is None:
+        # Entry never fully set up (e.g. YAML conflict warning path), nothing to restore.
         return True
 
     ban_manager = data.ban_manager
 
     try:
-        # Restore originals.  Because we stored bound methods, a plain assignment
-        # brings the instance back to its original state without touching the class.
         ban_manager.async_add_ban = data.original_add_ban  # type: ignore[method-assign]
         _LOGGER.info("Restored original async_add_ban")
 
@@ -371,29 +383,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-# FIX: return type was `bool` with `return True`.  HA's async_remove_entry
-# hook returns None; the wrong annotation caused a mypy error.
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove a config entry."""
     _LOGGER.debug("Removing Ban Allowlist for entry: %s", entry.title)
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry when options change.
-
-    FIX: use hass.config_entries.async_reload so the config entry state machine
-    is updated correctly, instead of calling async_unload_entry + async_setup_entry
-    directly.
-    """
+    """Reload config entry when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _remove_from_ban_list(hass: HomeAssistant, ip_addr: str) -> None:
-    """Remove an IP address from ip_bans.yaml.
-
-    FIX: renamed parameter from `ip_address` to `ip_addr` to avoid shadowing
-    the module-level `ip_address` function imported from ipaddress.
-    """
+    """Remove an IP address from ip_bans.yaml."""
     ban_file = Path(hass.config.path("ip_bans.yaml"))
 
     def _do_remove() -> None:
@@ -439,11 +440,11 @@ async def _remove_from_ban_list(hass: HomeAssistant, ip_addr: str) -> None:
 async def _clear_ban_notification(hass: HomeAssistant, ip_addr: str) -> None:
     """Dismiss Home Assistant ban notifications for a whitelisted IP.
 
-    FIX: removed the 5-iteration retry loop with 0.5 s sleeps and the 3-second
-    deferred cleanup task.  Since we intercept the ban *before* HA calls
-    async_add_ban / creates the notification, a single dismiss pass is sufficient.
-    The retry loop also had the unintended side-effect of dismissing legitimate
-    ban notifications for IPs that are NOT in the allowlist.
+    A single dismiss pass is sufficient because we intercept the ban before HA
+    calls async_add_ban / creates the notification.  The previous retry loop
+    (5 attempts x 500 ms + a 3 s deferred task) was both noisy and racy, and
+    could accidentally dismiss legitimate ban notifications for IPs that are not
+    in the allowlist when two events were processed concurrently.
     """
     for notification_id in ("ip-ban", "http-login"):
         try:
@@ -490,9 +491,6 @@ async def _scan_and_remove_whitelisted_bans(
 
             removed: list[str] = []
             for banned_ip in list(bans.keys()):
-                # FIX: removed `from ipaddress import ip_address` local import —
-                # ip_address is already imported at module level; the local import
-                # was a redundant shadowed import inside an executor function.
                 try:
                     ip_obj = ip_address(banned_ip)
                 except ValueError:
