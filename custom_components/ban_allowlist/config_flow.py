@@ -34,6 +34,9 @@ class BanAllowlistConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ip_addresses = [ip.strip() for ip in ip_list.split(",") if ip.strip()]
             validated_ips: list[str] = []
 
+            if not ip_addresses:
+                errors["base"] = "no_ips"
+
             for ip in ip_addresses:
                 try:
                     ipaddress.ip_network(ip, strict=False)

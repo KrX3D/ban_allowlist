@@ -11,7 +11,8 @@
     },
     "error": {
       "invalid_ip": "Ungültiges IP-Adress- oder Netzwerkformat",
-      "already_exists": "Diese IP-Adresse ist bereits in der Allowlist"
+      "already_exists": "Diese IP-Adresse ist bereits in der Allowlist",
+      "no_ips": "Gib mindestens eine IP-Adresse oder ein Netzwerk ein"
     },
     "abort": {
       "already_configured": "Ban-Allowlist ist bereits eingerichtet"
