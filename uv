@@ -17,7 +17,12 @@ if [ ! -f $UV_COMPRESSED ]; then
 fi
 
 if [ ! -f $UV ]; then
-    tar -zxvf ${UV_COMPRESSED} --one-top-level=${DOWNLOADS}
+    # The release tarball already contains a single top-level
+    # uv-x86_64-unknown-linux-musl/ directory, so --one-top-level is
+    # redundant here — and on some CI runners its extra directory-creation
+    # step fails with "Invalid cross-device link" (EXDEV). Extracting
+    # straight into DOWNLOADS with -C avoids that code path entirely.
+    tar -zxvf ${UV_COMPRESSED} -C ${DOWNLOADS}
     mv ${DOWNLOADS}/uv-x86_64-unknown-linux-musl/uv ${UV}
 fi
 
