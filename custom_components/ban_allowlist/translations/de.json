@@ -23,14 +23,10 @@
       "manage_ips": {
         "title": "Allowlist-Einträge verwalten",
         "description": "Aktuelle Allowlist-Einträge:\n\n{current_ips}",
-        "no_ips": "Keine Einträge in der Allowlist",
-        "action_options": {
-          "add": "Neue IP-Adresse hinzufügen",
-          "remove": "IP-Adresse entfernen",
+        "menu_options": {
+          "add_ip": "Neue IP-Adresse hinzufügen",
+          "remove_ip": "IP-Adresse entfernen",
           "done": "Fertig"
-        },
-        "data": {
-          "action": "Aktion"
         }
       },
       "add_ip": {
