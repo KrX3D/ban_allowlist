@@ -15,9 +15,9 @@ jobs:
     outputs:
       versions: ${{ steps.generate-versions.outputs.versions }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
     - name: Install dependencies
@@ -34,14 +34,14 @@ jobs:
       matrix:
         ha_version: ${{ fromJSON(needs.generate_versions.outputs.versions) }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
     - uses: KengoTODA/actions-setup-docker-compose@v1
       with:
-        version: 2.26.1
+        version: 2.40.3
     - name: Install dependencies
       run: ./uv pip install --system -r requirements.test
     - name: Integration tests (${{ matrix.ha_version}})

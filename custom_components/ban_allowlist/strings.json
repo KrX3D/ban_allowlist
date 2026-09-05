@@ -3,15 +3,16 @@
     "step": {
       "user": {
         "title": "Set up Ban Allowlist",
-        "description": "Add IP addresses or networks to whitelist (comma-separated).\n\nExample: {example}",
+        "description": "Add IPv4 or IPv6 addresses and networks to the allowlist (comma-separated).\n\nExample: {example}",
         "data": {
-          "ip_addresses": "IP Addresses"
+          "ip_addresses": "IP Addresses / Networks"
         }
       }
     },
     "error": {
       "invalid_ip": "Invalid IP address or network format",
-      "already_exists": "This IP address is already in the allowlist"
+      "already_exists": "This IP address is already in the allowlist",
+      "no_ips": "Enter at least one IP address or network"
     },
     "abort": {
       "already_configured": "Ban Allowlist is already configured"
@@ -20,28 +21,24 @@
   "options": {
     "step": {
       "manage_ips": {
-        "title": "Manage Whitelisted IPs",
-        "description": "Current whitelisted IPs:\n\n{current_ips}",
-        "no_ips": "No IPs whitelisted",
-        "action_options": {
-          "add": "Add new IP address",
-          "remove": "Remove IP address",
+        "title": "Manage Allowlisted IPs",
+        "description": "Current allowlisted IPs:\n\n{current_ips}",
+        "menu_options": {
+          "add_ip": "Add new IP address",
+          "remove_ip": "Remove IP address",
           "done": "Done"
-        },
-        "data": {
-          "action": "Action"
         }
       },
       "add_ip": {
-        "title": "Add IP Address",
-        "description": "Enter an IP address or network in CIDR notation.\n\nExample: {example}",
+        "title": "Add IP Address or Network",
+        "description": "Enter an IPv4 or IPv6 address, or a network in CIDR notation.\n\nExample: {example}",
         "data": {
           "ip_address": "IP Address or Network"
         }
       },
       "remove_ip": {
         "title": "Remove IP Address",
-        "description": "Select an IP address to remove from the allowlist",
+        "description": "Select an IP address or network to remove from the allowlist",
         "data": {
           "ip_address": "IP Address to Remove"
         }

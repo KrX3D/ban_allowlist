@@ -26,7 +26,7 @@ shutil.copytree(
 )
 
 
-def wait_for_http(port: int, host: str = "localhost", timeout: float = 5.0):
+def wait_for_http(port: int, host: str = "localhost", timeout: float = 60.0):
     """Wait for a particular HTTP host/port to start responding to GETs."""
     start_time = time.perf_counter()
     print(f"Waiting for http://{host}:{port}")

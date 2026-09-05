@@ -1,16 +1,15 @@
 """Config flow for Ban Allowlist integration."""
+
 import ipaddress
 import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers.translation import async_get_translations
 
-from .const import DOMAIN, CONF_IP_ADDRESSES
+from .const import CONF_IP_ADDRESSES, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +32,9 @@ class BanAllowlistConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ip_list = user_input.get(CONF_IP_ADDRESSES, "")
             ip_addresses = [ip.strip() for ip in ip_list.split(",") if ip.strip()]
             validated_ips: list[str] = []
+
+            if not ip_addresses:
+                errors["base"] = "no_ips"
 
             for ip in ip_addresses:
                 try:
@@ -76,8 +78,10 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
     def _get_ips(self) -> list[str]:
         """Return the current working IP list, initialising from the entry if needed."""
         if not hasattr(self, "_ips"):
-            opts = self.config_entry.options.get(CONF_IP_ADDRESSES)
-            data_ips = self.config_entry.data.get(CONF_IP_ADDRESSES, [])
+            entry = self.hass.config_entries.async_get_entry(self.handler)
+            assert entry is not None
+            opts = entry.options.get(CONF_IP_ADDRESSES)
+            data_ips = entry.data.get(CONF_IP_ADDRESSES, [])
             self._ips: list[str] = list(opts if opts is not None else data_ips)
         return self._ips
 
@@ -91,52 +95,23 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
     async def async_step_manage_ips(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Show IP management menu."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            action = user_input.get("action")
-            if action == "add":
-                return await self.async_step_add_ip()
-            if action == "remove":
-                return await self.async_step_remove_ip()
-            if action == "done":
-                return self.async_create_entry(
-                    title="",
-                    data={CONF_IP_ADDRESSES: self._get_ips()},
-                )
-
-        translations = await async_get_translations(
-            self.hass, self.hass.config.language, "options", [DOMAIN]
-        )
-
-        def _t(key: str, default: str) -> str:
-            return translations.get(f"component.{DOMAIN}.{key}", default)
-
+        """Show the IP management menu."""
         current_ips = self._get_ips()
-        ip_list = (
-            "\n".join(current_ips)
-            if current_ips
-            else _t("options.step.manage_ips.no_ips", "No IPs whitelisted")
+        ip_list = "\n".join(current_ips) if current_ips else "No IPs allowlisted"
+
+        return self.async_show_menu(
+            step_id="manage_ips",
+            menu_options=["add_ip", "remove_ip", "done"],
+            description_placeholders={"current_ips": ip_list},
         )
 
-        action_labels = {
-            "add": _t(
-                "options.step.manage_ips.action_options.add", "Add new IP address"
-            ),
-            "remove": _t(
-                "options.step.manage_ips.action_options.remove", "Remove IP address"
-            ),
-            "done": _t("options.step.manage_ips.action_options.done", "Done"),
-        }
-
-        return self.async_show_form(
-            step_id="manage_ips",
-            data_schema=vol.Schema(
-                {vol.Required("action"): vol.In(action_labels)}
-            ),
-            errors=errors,
-            description_placeholders={"current_ips": ip_list},
+    async def async_step_done(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Save the working allowlist and close the options flow."""
+        return self.async_create_entry(
+            title="",
+            data={CONF_IP_ADDRESSES: self._get_ips()},
         )
 
     async def async_step_add_ip(

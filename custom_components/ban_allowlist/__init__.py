@@ -24,7 +24,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, CONF_IP_ADDRESSES
+from .const import CONF_IP_ADDRESSES, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +43,17 @@ CONFIG_SCHEMA = vol.Schema(
     },
     extra=vol.ALLOW_EXTRA,
 )
+
+
+def _matching_network(
+    ip_obj: IPv4Address | IPv6Address,
+    allowlist: list[IPv4Network | IPv6Network],
+) -> IPv4Network | IPv6Network | None:
+    """Return the first allowlist network containing ip_obj, or None."""
+    for network in allowlist:
+        if ip_obj in network:
+            return network
+    return None
 
 
 @dataclasses.dataclass
@@ -88,9 +99,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         return True
 
     _LOGGER.debug("Ban manager %s", ban_manager)
-    allowlist: list[IPv4Network | IPv6Network] = [
-        ip_network(ip) for ip in yaml_ips
-    ]
+    allowlist: list[IPv4Network | IPv6Network] = [ip_network(ip) for ip in yaml_ips]
 
     _LOGGER.info("Setting allowlist with %s", [str(ip) for ip in allowlist])
 
@@ -99,13 +108,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def allowlist_async_add_ban(
         remote_addr: IPv4Address | IPv6Address,
     ) -> None:
-        for allowed_network in allowlist:
-            if remote_addr in allowed_network:
-                _LOGGER.info(
-                    "Not adding %s to ban list, as it's in the allowlist",
-                    remote_addr,
-                )
-                return
+        if _matching_network(remote_addr, allowlist) is not None:
+            _LOGGER.info(
+                "Not adding %s to ban list, as it's in the allowlist",
+                remote_addr,
+            )
+            return
         _LOGGER.info("Banning IP %s", remote_addr)
         await original_async_add_ban(ban_manager, remote_addr)
 
@@ -175,15 +183,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #
     # The function receives an aiohttp web.Request; the peer IP is request.remote.
     # -------------------------------------------------------------------------
-    original_process_wrong_login: Any = getattr(
-        ban_module, "process_wrong_login", None
-    )
+    original_process_wrong_login: Any = getattr(ban_module, "process_wrong_login", None)
 
     if original_process_wrong_login is None:
         # Defensive: log all callables so we can identify the correct name if
         # HA renames this function in a future version.
         public_callables = [
-            name for name in dir(ban_module)
+            name
+            for name in dir(ban_module)
             if not name.startswith("_") and callable(getattr(ban_module, name))
         ]
         _LOGGER.warning(
@@ -193,6 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             public_callables,
         )
     else:
+
         async def allowlist_process_wrong_login(request: Any) -> None:
             """Wrap process_wrong_login to skip allowlisted IPs entirely.
 
@@ -204,18 +212,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if remote is not None:
                 try:
                     remote_addr: IPv4Address | IPv6Address = ip_address(remote)
-                    for allowed_network in allowlist:
-                        if remote_addr in allowed_network:
-                            _LOGGER.debug(
-                                "Skipping process_wrong_login for allowlisted IP %s",
-                                remote_addr,
-                            )
-                            return
+                    if _matching_network(remote_addr, allowlist) is not None:
+                        _LOGGER.debug(
+                            "Skipping process_wrong_login for allowlisted IP %s",
+                            remote_addr,
+                        )
+                        return
                 except (ValueError, TypeError):
                     pass
             await original_process_wrong_login(request)
 
-        ban_module.process_wrong_login = allowlist_process_wrong_login  # type: ignore[attr-defined]
+        ban_module.process_wrong_login = allowlist_process_wrong_login
         _LOGGER.debug("Patched ban_module.process_wrong_login")
 
     # -------------------------------------------------------------------------
@@ -231,14 +238,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         remote_addr: IPv4Address | IPv6Address,
     ) -> None:
         """Wrap async_add_ban to skip allowlisted IPs."""
-        for allowed_network in allowlist:
-            if remote_addr in allowed_network:
-                _LOGGER.info(
-                    "Not adding %s to ban list, as it's in the allowlist",
-                    remote_addr,
-                )
-                await _remove_from_ban_list(hass, str(remote_addr))
-                return
+        if _matching_network(remote_addr, allowlist) is not None:
+            _LOGGER.info(
+                "Not adding %s to ban list, as it's in the allowlist",
+                remote_addr,
+            )
+            await _remove_from_ban_list(hass, str(remote_addr))
+            return
         _LOGGER.info("Banning IP %s", remote_addr)
         await original_add_ban(remote_addr)
 
@@ -268,9 +274,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "allowlisted IP %s",
                         ip_value,
                     )
-                    hass.async_create_task(
-                        _clear_ban_notification(hass, str(ip_value))
-                    )
+                    hass.async_create_task(_clear_ban_notification(hass, str(ip_value)))
                     break
 
     log_handler = _BanLogHandler()
@@ -302,7 +306,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Restored original async_add_ban")
 
         if data.original_process_wrong_login is not None:
-            ban_module.process_wrong_login = data.original_process_wrong_login  # type: ignore[attr-defined]
+            ban_module.process_wrong_login = data.original_process_wrong_login
             _LOGGER.info("Restored original process_wrong_login")
 
     except Exception as err:
@@ -361,9 +365,7 @@ async def _remove_from_ban_list(hass: HomeAssistant, ip_addr: str) -> None:
                     yaml.dump(bans, f, default_flow_style=False)
 
         except Exception as err:
-            _LOGGER.error(
-                "Error removing IP %s from ip_bans.yaml: %s", ip_addr, err
-            )
+            _LOGGER.error("Error removing IP %s from ip_bans.yaml: %s", ip_addr, err)
 
     await hass.async_add_executor_job(_do_remove)
 
@@ -388,9 +390,7 @@ async def _clear_ban_notification(hass: HomeAssistant, ip_addr: str) -> None:
                 ip_addr,
             )
         except Exception as err:
-            _LOGGER.debug(
-                "Could not dismiss notification %s: %s", notification_id, err
-            )
+            _LOGGER.debug("Could not dismiss notification %s: %s", notification_id, err)
 
 
 async def _scan_and_remove_whitelisted_bans(
@@ -425,16 +425,15 @@ async def _scan_and_remove_whitelisted_bans(
                     _LOGGER.debug("Invalid IP in ban list: %s", banned_ip)
                     continue
 
-                for network in allowlist:
-                    if ip_obj in network:
-                        del bans[banned_ip]
-                        removed.append(banned_ip)
-                        _LOGGER.info(
-                            "Found allowlisted IP %s in ban list (matches %s), removing",
-                            banned_ip,
-                            network,
-                        )
-                        break
+                network = _matching_network(ip_obj, allowlist)
+                if network is not None:
+                    del bans[banned_ip]
+                    removed.append(banned_ip)
+                    _LOGGER.info(
+                        "Found allowlisted IP %s in ban list (matches %s), removing",
+                        banned_ip,
+                        network,
+                    )
 
             if removed:
                 if not bans:

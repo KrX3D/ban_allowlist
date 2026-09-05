@@ -4,11 +4,11 @@
   "codeowners": [
     "@KrX3D"
   ],
+  "config_flow": true,
   "dependencies": ["http"],
   "documentation": "https://github.com/KrX3D/ban_allowlist",
   "integration_type": "service",
   "iot_class": "calculated",
-  "config_flow": true,
   "issue_tracker": "https://github.com/KrX3D/ban_allowlist/issues",
   "requirements": [],
   "version": "0.2.1"

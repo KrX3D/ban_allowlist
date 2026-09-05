@@ -11,7 +11,8 @@
     },
     "error": {
       "invalid_ip": "Invalid IP address or network format",
-      "already_exists": "This IP address is already in the allowlist"
+      "already_exists": "This IP address is already in the allowlist",
+      "no_ips": "Enter at least one IP address or network"
     },
     "abort": {
       "already_configured": "Ban Allowlist is already configured"
@@ -22,14 +23,10 @@
       "manage_ips": {
         "title": "Manage Allowlisted IPs",
         "description": "Current allowlisted IPs:\n\n{current_ips}",
-        "no_ips": "No IPs allowlisted",
-        "action_options": {
-          "add": "Add new IP address",
-          "remove": "Remove IP address",
+        "menu_options": {
+          "add_ip": "Add new IP address",
+          "remove_ip": "Remove IP address",
           "done": "Done"
-        },
-        "data": {
-          "action": "Action"
         }
       },
       "add_ip": {
