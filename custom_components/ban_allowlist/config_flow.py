@@ -6,8 +6,8 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 
 from .const import CONF_IP_ADDRESSES, DOMAIN
 
@@ -21,7 +21,7 @@ class BanAllowlistConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
@@ -87,14 +87,14 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options — entry point called once by HA."""
         self._get_ips()
         return await self.async_step_manage_ips()
 
     async def async_step_manage_ips(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Show the IP management menu."""
         current_ips = self._get_ips()
         ip_list = "\n".join(current_ips) if current_ips else "No IPs allowlisted"
@@ -107,7 +107,7 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_done(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Save the working allowlist and close the options flow."""
         return self.async_create_entry(
             title="",
@@ -116,7 +116,7 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_add_ip(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Add a new IP to the working allowlist."""
         errors: dict[str, str] = {}
 
@@ -144,7 +144,7 @@ class BanAllowlistOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_remove_ip(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Remove an IP from the working allowlist."""
         ips = self._get_ips()
 
