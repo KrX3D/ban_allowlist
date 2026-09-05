@@ -367,7 +367,7 @@ async def _remove_from_ban_list(hass: HomeAssistant, ip_addr: str) -> None:
         except Exception as err:
             _LOGGER.error("Error removing IP %s from ip_bans.yaml: %s", ip_addr, err)
 
-    await hass.async_add_executor_job(_do_remove)
+    await hass.async_add_executor_job(_do_remove)  # type: ignore[arg-type]
 
 
 async def _clear_ban_notification(hass: HomeAssistant, ip_addr: str) -> None:
@@ -458,6 +458,6 @@ async def _scan_and_remove_whitelisted_bans(
             _LOGGER.error("Error scanning existing bans: %s", err)
             return []
 
-    removed_ips = await hass.async_add_executor_job(_do_scan)
+    removed_ips = await hass.async_add_executor_job(_do_scan)  # type: ignore[arg-type]
     for ip in removed_ips:
         await _clear_ban_notification(hass, ip)
