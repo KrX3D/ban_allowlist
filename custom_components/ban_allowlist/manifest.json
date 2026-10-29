@@ -1,6 +1,9 @@
 {
   "domain": "ban_allowlist",
   "name": "IP Ban Allowlist",
+  "categories": [
+    "computers_network"
+  ],
   "codeowners": [
     "@KrX3D"
   ],
